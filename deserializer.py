@@ -1,90 +1,59 @@
 class RedisException(Exception):
     pass
 
-def find_array_end(data):
-    """Helper function to find the end index of a nested array"""
-    count = 1
-    for idx in range(1, len(data)):
-        if data[idx].startswith('*'):
-            count += int(data[idx][1:])
-        elif data[idx][0] in '+-:$':
-            count -= 1
-        if count == 0:
-            return idx + 1
-    return len(data)
-
 def parse_simple_string(simple_string: str):
-    first_byte = simple_string[0]
-    if first_byte == '+':
-        # Only include the string itself. remove first byte.
-        simple_string = simple_string[1:]
-        return str(simple_string)
+    if simple_string[0] == '+':
+        return simple_string[1:]
 
 def parse_simple_error(simple_error: str):
-    first_byte = simple_error[0]
-    if first_byte == '-':
-        simple_error_message = simple_error[1:]
-        return RedisException(simple_error_message)
-    
+    if simple_error[0] == '-':
+        return RedisException(simple_error[1:])
+
 def parse_integer(integer: str):
-    first_byte = integer[0]  
-    if first_byte == ":":
-        integer = integer[1:]
-        return int(integer)
+    if integer[0] == ':':
+        return int(integer[1:])
 
-def parse_bulk_string(length_and_data: list):
-    first_byte = length_and_data[0][0]
-    if first_byte == '$':
-        length_and_data[0] = length_and_data[0][1:]
-        bulk_string_length = int(length_and_data[0])
-        bulk_string_data = length_and_data[1]
-        if len(bulk_string_data) == bulk_string_length:
-            return str(bulk_string_data)
+def parse_bulk_string(resp_list: list):
+    length = int(resp_list.pop(0)[1:])
+    if length == -1:
+        return None
+    bulk_string_data = resp_list.pop(0)
+    if len(bulk_string_data) == length:
+        return bulk_string_data
+    else:
+        raise ValueError("Bulk string length mismatch")
 
-def parse_array(num_elements_and_data: list):
-    first_byte = num_elements_and_data[0][0]
-    # Check that data passed in actually represents an array.
-    if first_byte == "*":
-        array_length = int(num_elements_and_data[0][1:])
-        array_object = []
-        i = 1 # Skip over first byte while looping.
-        while array_length > 0:
-            first_byte = num_elements_and_data[i][0]
-            if first_byte == '+':
-                array_object.append(parse_simple_string(num_elements_and_data[i]))
-                i += 1
-            elif first_byte == '-':
-                array_object.append(parse_simple_error(num_elements_and_data[i]))
-                i += 1
-            elif first_byte == ':':
-                array_object.append(parse_integer(num_elements_and_data[i]))
-                i += 1
-            elif first_byte == '$':
-                array_object.append(parse_bulk_string(num_elements_and_data[i:i+2]))
-                i += 2
-                
-            array_length -= 1
-        return array_object
+def parse_array(resp_list: list):
+    array_length = int(resp_list.pop(0)[1:])
+    array = []
+    for _ in range(array_length):
+        array.append(deserialize_resp(resp_list))
+    return array
 
-def deserialize_resp(resp_string: str):
-    """Deserialize resp list into their corresponding python objects"""
-    resp_list = resp_string.split('\\r\\n')
-    resp_list.pop() 
+def tokenize(resp: str):
+    return resp.split('\r\n')[:-1]
+
+def deserialize_resp(resp_list: list):
+    if not resp_list:
+        return None
+    
     first_byte = resp_list[0][0]
     if first_byte == "+":
-        simple_string = resp_list[0]
-        return parse_simple_string(simple_string)
+        return parse_simple_string(resp_list.pop(0))
     elif first_byte == "-":
-        simple_error = resp_list[0]
-        return parse_simple_error(simple_error)
+        return parse_simple_error(resp_list.pop(0))
     elif first_byte == ":":
-        integer = resp_list[0]
-        return parse_integer(integer)
+        return parse_integer(resp_list.pop(0))
     elif first_byte == "$":
         return parse_bulk_string(resp_list)
     elif first_byte == "*":
         return parse_array(resp_list)
+    else:
+        raise ValueError(f"Unexpected token: {resp_list[0]}")
 
-resp_string = r'*1\r\n$4\r\nping\r\n'
-deserialized_value = deserialize_resp(resp_string)
-print(deserialized_value)
+# Example usage:
+resp_string = "*3\r\n:1\r\n:2\r\n*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n:3\r\n"
+tokens = tokenize(resp_string)
+print("Tokens:", tokens)
+deserialized_value = deserialize_resp(tokens)
+print("Deserialized value:", deserialized_value)
