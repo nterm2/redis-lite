@@ -1,6 +1,6 @@
 from deserializer import RedisException
 
-def serializer(obj):
+def serializer(obj, use_bulk_str=False):
     """Serializes a python object into its RESP format"""
     def parse_simple_string(string: str):
         if len(string) > 0:
@@ -40,11 +40,14 @@ def serializer(obj):
             
             return array_resp
         
-    def serialize_python_object(obj):
+    def serialize_python_object(obj, use_bulk_str=False):
+        # Only case where we will ignore use_bulk_str
         if (obj == None):
             return parse_bulk_string(obj)
+        
         elif isinstance(obj, str):
-            if '\r' in obj or '\n' in obj or len(obj) == 0:
+            if '\r' in obj or '\n' in obj or len(obj) == 0 or use_bulk_str: 
+                # include use_bulk_str, as whether to serialize string into bulk or simple string can depend on the command 
                 return parse_bulk_string(obj)
             else:
                 return parse_simple_string(obj)
@@ -57,4 +60,4 @@ def serializer(obj):
         else:
             raise ValueError("Invalid object type")
 
-    return serialize_python_object(obj)
+    return serialize_python_object(obj, use_bulk_str)

@@ -48,6 +48,9 @@ class TestDeserializer(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             serializer([1, 2, 3, {"name": "joe"}])
         self.assertEqual(str((cm.exception)), "Invalid object type")
-        
+    
+    def test_use_bulk_str_true(self):
+        self.assertEqual(serializer("OK", use_bulk_str=True), '$2\r\nOK\r\n')
+    
 if __name__ == "__main__":
     unittest.main()
