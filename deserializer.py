@@ -23,6 +23,8 @@ def deserializer(resp: str):
             if len(simple_string) == 1:
                 # An empty simple string has been input, which is not allowed.
                 raise ValueError("RESP data cannot include empty simple strings")
+            elif "\r" in simple_string or "\n" in simple_string:
+                raise ValueError("RESP simple strings cannot include CRLF characters")
             return simple_string[1:]
 
     def parse_simple_error(simple_error: str):

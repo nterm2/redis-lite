@@ -46,6 +46,11 @@ class TestDeserializer(unittest.TestCase):
             deserializer("+\r\n")     
         exception = cm.exception
         self.assertEqual(str(exception), "RESP data cannot include empty simple strings")  
+
+        with self.assertRaises(ValueError) as cm:
+            deserializer("+3\r\r\n")     
+        exception = cm.exception
+        self.assertEqual(str(exception), "RESP simple strings cannot include CRLF characters")  
     
     def test_invalid_simple_errors(self):
         with self.assertRaises(ValueError) as cm:

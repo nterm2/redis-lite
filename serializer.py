@@ -44,7 +44,7 @@ def serializer(obj):
         if (obj == None):
             return parse_bulk_string(obj)
         elif isinstance(obj, str):
-            if '\r' in obj or '\n' in obj or len(obj) > 512 or len(obj) == 0:
+            if '\r' in obj or '\n' in obj or len(obj) == 0:
                 return parse_bulk_string(obj)
             else:
                 return parse_simple_string(obj)
@@ -54,7 +54,7 @@ def serializer(obj):
             return parse_integer(obj)
         elif isinstance(obj, list):
             return parse_array(obj)
+        else:
+            raise ValueError("Invalid object type")
 
     return serialize_python_object(obj)
-
-print(serializer([1, 2, [1, 2, 3]]))
