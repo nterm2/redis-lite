@@ -1,4 +1,5 @@
 import socket
+from threading import Thread
 from serializer import serializer
 from deserializer import deserializer, RedisException
 
@@ -7,7 +8,7 @@ PORT = 6385
 
 redis_lite_dict = {}
 
-def handle_client(conn):
+def handle_client(conn, addr):
     with conn:
         print(f"Connected by {addr}")
         while True:
@@ -22,47 +23,32 @@ def handle_client(conn):
             # Implement PING
             if command_word.upper() == 'PING':
                 if len(resp_repr) == 0:
-                    # Means no parameter has been passed into ping. return pong
                     resp_response = serializer('PONG', use_bulk_str=True)
                 elif len(resp_repr) == 1:
-                    # A parameter has been passed into ping. return the parameter
                     resp_response = serializer(resp_repr[0], use_bulk_str=True)
                 else:
-                    # Passed in more than one parameter. Not allowed. Send back an error
                     resp_response = serializer(RedisException("wrong number of arguments for the 'ping' command"))
                 conn.sendall(resp_response.encode('utf-8'))
-                print(f"Sent: {resp_response}")
             # Implement ECHO
             elif command_word.upper() == 'ECHO':
                 if len(resp_repr) == 1:
-                    # A parameter has been passed into echo. return the parameter
                     resp_response = serializer(resp_repr[0], use_bulk_str=True)
                 else:
-                    # Multiple or no parameters have been passed into echo. return an error
                     resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
                 conn.sendall(resp_response.encode('utf-8'))
-                print(f"Sent: {resp_response}")
             # Implement SET
             elif command_word.upper() == 'SET':
                 if len(resp_repr) == 2:
-                    # two parameters have been passed as expected. set key value pair
                     redis_lite_dict[resp_repr[0]] = resp_repr[1]
                     resp_response = serializer("OK", use_bulk_str=False)
-                elif len(resp_repr) < 2:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
                 else:
-                    resp_response = serializer(RedisException("syntax error"))
+                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
                 conn.sendall(resp_response.encode('utf-8'))
-                print(f"Sent: {resp_response}")
             # Implement GET
             elif command_word.upper() == 'GET':
                 if len(resp_repr) == 1:
-                    try:
-                        value = redis_lite_dict[resp_repr[0]]
-                    except KeyError:
-                        resp_response = serializer(None)   
-                    else:
-                        resp_response = serializer(value)                
+                    value = redis_lite_dict.get(resp_repr[0], None)
+                    resp_response = serializer(value)
                 else:
                     resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
                 conn.sendall(resp_response.encode('utf-8'))
@@ -77,4 +63,5 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     print(f"Server listening on {HOST}:{PORT}")
     while True:
         conn, addr = s.accept()
-        handle_client(conn)
+        # Handle each client in a new thread
+        Thread(target=handle_client, args=(conn, addr)).start()
