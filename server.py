@@ -4,7 +4,7 @@ from serializer import serializer
 from deserializer import deserializer, RedisException
 
 HOST = "127.0.0.1"
-PORT = 6385
+PORT = 6388
 
 redis_lite_dict = {}
 
@@ -41,6 +41,37 @@ def handle_client(conn, addr):
                 if len(resp_repr) == 2:
                     redis_lite_dict[resp_repr[0]] = resp_repr[1]
                     resp_response = serializer("OK", use_bulk_str=False)
+                elif len(resp_repr) == 4:
+                    # Implement expiring keys
+                    expiry_command = resp_repr[2].upper()
+                    valid_expiry_commands = ["EX", "PX", "EXAT", "PXAT"]
+                    timeframe = resp_repr[3]
+                    if expiry_command in valid_expiry_commands:
+                        try:
+                            int(float(timeframe))
+                        except:
+                            resp_response = serializer(RedisException("value is not an integer or out of range"))
+                        else:
+                            if int(float(timeframe)) > 0:
+                                if timeframe.isdigit():
+                                    if expiry_command == "EX":
+                                        pass 
+                                    elif expiry_command == "PX":
+                                        pass 
+                                    elif expiry_command == "EXAT":
+                                        pass
+                                    elif expiry_command == "PXAT":
+                                        pass
+                                else:
+                                    # the timeframe entered is not an integer
+                                    resp_response = serializer(RedisException("value is not an integer or out of range"))
+                            else:
+                                # the timeframe is not valid. can't have a time that is less than or equal to zero
+                                resp_response = serializer(RedisException("invalid expire time in 'set' command"))
+
+                    else:
+                        # Invalid expiry command
+                        resp_response = serializer(RedisException("syntax error"))
                 else:
                     resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
                 conn.sendall(resp_response.encode('utf-8'))
