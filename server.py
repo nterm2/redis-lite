@@ -1,4 +1,5 @@
 import socket
+import datetime
 from threading import Thread
 from serializer import serializer
 from deserializer import deserializer, RedisException
@@ -39,7 +40,7 @@ def handle_client(conn, addr):
             # Implement SET
             elif command_word.upper() == 'SET':
                 if len(resp_repr) == 2:
-                    redis_lite_dict[resp_repr[0]] = resp_repr[1]
+                    redis_lite_dict[resp_repr[0]] = {'data': resp_repr[1], 'expires_at': None}
                     resp_response = serializer("OK", use_bulk_str=False)
                 elif len(resp_repr) == 4:
                     # Implement expiring keys
@@ -54,14 +55,24 @@ def handle_client(conn, addr):
                         else:
                             if int(float(timeframe)) > 0:
                                 if timeframe.isdigit():
+                                    current_time = datetime.datetime.now()
+                                    timeframe = int(timeframe)
                                     if expiry_command == "EX":
-                                        pass 
+                                        expiry_date = current_time + datetime.timedelta(seconds=timeframe)
                                     elif expiry_command == "PX":
-                                        pass 
+                                        expiry_date = current_time + datetime.timedelta(milliseconds=timeframe)
                                     elif expiry_command == "EXAT":
-                                        pass
+                                        epoch_datetime = datetime.datetime.fromtimestamp(timeframe)
+                                        epoch = datetime.datetime(1970, 1, 1)
+                                        time_difference = epoch_datetime - epoch 
+                                        expiry_date = current_time + time_difference
                                     elif expiry_command == "PXAT":
-                                        pass
+                                        epoch_datetime = datetime.datetime.fromtimestamp(timeframe / 1000)
+                                        epoch = datetime.datetime(1970, 1, 1)
+                                        time_difference = epoch_datetime - epoch 
+                                        expiry_date = current_time + time_difference
+                                    redis_lite_dict[resp_repr[0]] = {'data': resp_repr[1], 'expires_at': expiry_date}
+                                    resp_response = serializer("OK", use_bulk_str=False)
                                 else:
                                     # the timeframe entered is not an integer
                                     resp_response = serializer(RedisException("value is not an integer or out of range"))
@@ -79,6 +90,12 @@ def handle_client(conn, addr):
             elif command_word.upper() == 'GET':
                 if len(resp_repr) == 1:
                     value = redis_lite_dict.get(resp_repr[0], None)
+                    if value and value['expires_at'] and value['expires_at'] <= datetime.datetime.now():
+                        del redis_lite_dict[resp_repr[0]]
+                        value = None # key has expired, at which we delete the key
+                    elif value:
+                        value = value['data'] # key exists and is either doesn't have a timestamp or has not been expired yet, at which we can access the data.
+                    print(value)
                     resp_response = serializer(value)
                 else:
                     resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
