@@ -42,12 +42,19 @@ class TestRedisServer(unittest.TestCase):
         self.assertEqual(self.r.get("name"), None)
 
     def test_set_get_pxat(self):
-        unix_time_in_5_milliseconds = int(time.time() * 1000) + 5
-        self.assertEqual(self.r.set(name="name", value="Bob", pxat=unix_time_in_5_milliseconds), True)
-        time.sleep(1 / 1000)
+        unix_time_in_5000_milliseconds = int(time.time() * 1000) + 5000
+        self.assertEqual(self.r.set(name="name", value="Bob", pxat=unix_time_in_5000_milliseconds), True)
+        time.sleep(1000 / 1000)
         self.assertEqual(self.r.get("name"), "Bob")
-        time.sleep(4 / 1000)
+        time.sleep(4000 / 1000)
         self.assertEqual(self.r.get("name"), None)
-
+    
+    def test_exists(self):
+        self.r.set("name", "bob")
+        self.r.set("age", 12)
+        self.r.set("height", 1.81)
+        self.assertEqual(self.r.exists("name", "name", "name"), 3)
+        self.assertEqual(self.r.exists("name", "height", "width"), 2)
+        self.assertEqual(self.r.exists("width", "depth", "breadth"), 0)
 if __name__ == "__main__":
     unittest.main()

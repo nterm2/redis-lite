@@ -89,11 +89,41 @@ def handle_client(conn, addr):
                         value = None # key has expired, at which we delete the key
                     elif value:
                         value = value['data'] # key exists and is either doesn't have a timestamp or has not been expired yet, at which we can access the data.
-                    print(value)
                     resp_response = serializer(value)
                 else:
                     resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
                 conn.sendall(resp_response.encode('utf-8'))
+            # Implement EXISTS 
+            elif command_word.upper() == 'EXISTS':
+                if len(resp_repr) > 0:
+                    redis_lite_dict_keys = list(redis_lite_dict.keys())
+                    counter = 0
+                    for potential_key in resp_repr:
+                        print(potential_key)
+                        if potential_key in redis_lite_dict_keys:
+                            counter += 1
+                    resp_response = serializer(counter)
+                else:
+                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
+                conn.sendall(resp_response.encode('utf-8'))
+            # Implement DEL
+            elif command_word.upper() == 'DEL':
+                pass 
+            # Implement INCR 
+            elif command_word.upper() == 'INCR':
+                pass 
+            # Implement DECR
+            elif command_word.upper() == 'DECR':
+                pass 
+            # Implement LPUSH
+            elif command_word.upper() == 'LPUSH':
+                pass 
+            # Implement RPUSH
+            elif command_word.upper() == 'RPUSH':
+                pass 
+            # Implement SAVE 
+            elif command_word.upper() == 'SAVE':
+                pass
             else:
                 resp_response = serializer(RedisException(f"unknown command {command_word}"))
                 conn.sendall(resp_response.encode('utf-8'))
