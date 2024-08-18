@@ -5,7 +5,7 @@ from serializer import serializer
 from deserializer import deserializer, RedisException
 
 HOST = "127.0.0.1"
-PORT = 6388
+PORT = 6389
 
 redis_lite_dict = {}
 
@@ -108,7 +108,20 @@ def handle_client(conn, addr):
                 conn.sendall(resp_response.encode('utf-8'))
             # Implement DEL
             elif command_word.upper() == 'DEL':
-                pass 
+                if len(resp_repr) > 0:
+                    redis_lite_dict_keys = list(redis_lite_dict.keys())
+                    counter = 0
+                    for potential_key in resp_repr:
+                        try:
+                            del redis_lite_dict[potential_key]
+                        except:
+                            pass 
+                        else:
+                            counter += 1
+                    resp_response = serializer(counter)
+                else:
+                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
+                conn.sendall(resp_response.encode('utf-8'))              
             # Implement INCR 
             elif command_word.upper() == 'INCR':
                 pass 
