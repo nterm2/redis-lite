@@ -62,15 +62,9 @@ def handle_client(conn, addr):
                                     elif expiry_command == "PX":
                                         expiry_date = current_time + datetime.timedelta(milliseconds=timeframe)
                                     elif expiry_command == "EXAT":
-                                        epoch_datetime = datetime.datetime.fromtimestamp(timeframe)
-                                        epoch = datetime.datetime(1970, 1, 1)
-                                        time_difference = epoch_datetime - epoch 
-                                        expiry_date = current_time + time_difference
+                                        expiry_date = datetime.datetime.fromtimestamp(timeframe)
                                     elif expiry_command == "PXAT":
-                                        epoch_datetime = datetime.datetime.fromtimestamp(timeframe / 1000)
-                                        epoch = datetime.datetime(1970, 1, 1)
-                                        time_difference = epoch_datetime - epoch 
-                                        expiry_date = current_time + time_difference
+                                        expiry_date = datetime.datetime.fromtimestamp(timeframe / 1000)
                                     redis_lite_dict[resp_repr[0]] = {'data': resp_repr[1], 'expires_at': expiry_date}
                                     resp_response = serializer("OK", use_bulk_str=False)
                                 else:
