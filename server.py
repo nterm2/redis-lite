@@ -193,10 +193,33 @@ def handle_client(conn, addr):
                 else:
                     resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
                 conn.sendall(resp_response.encode('utf-8')) 
-                
+
             # Implement LPUSH
             elif command_word.upper() == 'LPUSH':
-                pass 
+                if len(resp_repr) > 1:
+                    key_exists = resp_repr[0] in list(redis_lite_dict.keys())
+                    if key_exists:
+                        value = redis_lite_dict[resp_repr[0]]['data']
+                        if type(value) == list:
+                            elements_to_add = resp_repr[1:]
+                            elements_to_add.reverse()
+                            for element in elements_to_add:
+                                value.insert(0, element)
+                            resp_response = serializer(len(value))
+                        else:
+                            resp_response = serializer(RedisException("WRONGTYPE Operation against a key holding the wrong kind of value"))
+                    else:
+                        redis_lite_dict[resp_repr[0]] = {'data': [], 'expires_at': None}
+                        value = redis_lite_dict[resp_repr[0]]['data']
+                        elements_to_add = resp_repr[1:]
+                        elements_to_add.reverse()
+                        for element in elements_to_add:
+                            value.insert(0, element)
+                        resp_response = serializer(len(value))
+                else:
+                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
+                conn.sendall(resp_response.encode('utf-8')) 
+
             # Implement RPUSH
             elif command_word.upper() == 'RPUSH':
                 pass 

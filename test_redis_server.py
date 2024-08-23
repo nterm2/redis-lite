@@ -80,5 +80,10 @@ class TestRedisServer(unittest.TestCase):
         self.assertEqual(self.r.execute_command("DECR age"), "11")
         self.assertEqual(self.r.execute_command("DECR height"), "-13")
         self.assertEqual(self.r.execute_command("DECR weight"), -1)
+    
+    def test_lpush(self):
+        self.assertEqual(self.r.lpush('colours', 'red', 'yellow', 'green', 'blue'), 4)
+        self.assertEqual(self.r.lpush("colours", "indigo"), 5)
+        
 if __name__ == "__main__":
     unittest.main()
