@@ -4,7 +4,7 @@ import time
 
 class TestRedisServer(unittest.TestCase):
     def setUp(self):
-        self.r = redis.Redis(host="localhost", port=6389, socket_connect_timeout=5, socket_timeout=5, decode_responses=True)
+        self.r = redis.Redis(host="localhost", port=6384, socket_connect_timeout=5, socket_timeout=5, decode_responses=True)
 
     def test_valid_ping(self):
         self.assertEqual(self.r.ping(), True)
@@ -64,5 +64,14 @@ class TestRedisServer(unittest.TestCase):
         self.assertEqual(self.r.delete("name", "name", "name"), 1)
         self.assertEqual(self.r.delete("age", "height", "nickname"), 2)
         self.assertEqual(self.r.delete("name", "name", "name"), 0)
+    
+    def test_incr(self):
+        self.r.delete('weight') # Delete the key if it already exists
+        self.r.set("age", 12)
+        self.r.set("height", "-12")
+        self.assertEqual(self.r.execute_command("INCR age"), "13")
+        self.assertEqual(self.r.execute_command("INCR height"), "-11")
+        self.assertEqual(self.r.execute_command("INCR weight"), 1)
+
 if __name__ == "__main__":
     unittest.main()
