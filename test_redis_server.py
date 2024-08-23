@@ -82,8 +82,13 @@ class TestRedisServer(unittest.TestCase):
         self.assertEqual(self.r.execute_command("DECR weight"), -1)
     
     def test_lpush(self):
+        self.r.delete("colours") # Delete key if it already exists
         self.assertEqual(self.r.lpush('colours', 'red', 'yellow', 'green', 'blue'), 4)
         self.assertEqual(self.r.lpush("colours", "indigo"), 5)
-        
+
+    def test_rpush(self):
+        self.r.delete("colours") # Delete key if it already exists
+        self.assertEqual(self.r.rpush('colours', 'red', 'yellow', 'green', 'blue'), 4)
+        self.assertEqual(self.r.rpush("colours", "indigo"), 5)
 if __name__ == "__main__":
     unittest.main()

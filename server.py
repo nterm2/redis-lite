@@ -222,7 +222,30 @@ def handle_client(conn, addr):
 
             # Implement RPUSH
             elif command_word.upper() == 'RPUSH':
-                pass 
+                if len(resp_repr) > 1:
+                    key_exists = resp_repr[0] in list(redis_lite_dict.keys())
+                    if key_exists:
+                        value = redis_lite_dict[resp_repr[0]]['data']
+                        if isinstance(value, list):
+                            elements_to_add = resp_repr[1:]
+                            for element in elements_to_add:
+                                value.append(element)
+                            resp_response = serializer(len(value))
+                        else:
+                            resp_response = serializer(RedisException("WRONGTYPE Operation against a key holding the wrong kind of value"))
+                    else:
+                        redis_lite_dict[resp_repr[0]] = {'data': [], 'expires_at': None}
+                        value = redis_lite_dict[resp_repr[0]]['data']
+                        elements_to_add = resp_repr[1:]
+                        for element in elements_to_add:
+                            value.append(element)
+                        resp_response = serializer(len(value))
+                else:
+                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
+                
+                # Ensure resp_response is always defined
+                conn.sendall(resp_response.encode('utf-8'))
+
             # Implement SAVE 
             elif command_word.upper() == 'SAVE':
                 pass
