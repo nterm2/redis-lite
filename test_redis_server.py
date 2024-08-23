@@ -73,5 +73,12 @@ class TestRedisServer(unittest.TestCase):
         self.assertEqual(self.r.execute_command("INCR height"), "-11")
         self.assertEqual(self.r.execute_command("INCR weight"), 1)
 
+    def test_decr(self):
+        self.r.delete('weight') # Delete the key if it already exists
+        self.r.set("age", 12)
+        self.r.set("height", "-12")
+        self.assertEqual(self.r.execute_command("DECR age"), "11")
+        self.assertEqual(self.r.execute_command("DECR height"), "-13")
+        self.assertEqual(self.r.execute_command("DECR weight"), -1)
 if __name__ == "__main__":
     unittest.main()

@@ -140,8 +140,7 @@ def handle_client(conn, addr):
                                 valid_int_string = data_to_increment.replace('-', '')
                                 # if the string is negative, remove the - sign as isdigit will not work with it.
                                 valid_int_string = valid_int_string.isdigit()
-                            except Exception as e:
-                                print(e)
+                            except:
                                 resp_response = serializer(RedisException("value is not an integer or out of range"))  
                             else:
                                 if valid_int_string:
@@ -158,9 +157,43 @@ def handle_client(conn, addr):
                 else:
                     resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
                 conn.sendall(resp_response.encode('utf-8')) 
+
             # Implement DECR
             elif command_word.upper() == 'DECR':
-                pass 
+                if len(resp_repr) == 1:
+                    redis_lite_dict_keys = list(redis_lite_dict.keys())
+                    key_to_decrement = resp_repr[0]
+                    if key_to_decrement in redis_lite_dict_keys:
+                        # Check whether the key's value is a string that can be represented as an integer, an integer, or otherwise (at which an error will be raised.)
+                        if isinstance(redis_lite_dict[key_to_decrement]["data"], int):
+                            # Dealing with an integer
+                            redis_lite_dict[key_to_decrement]["data"] -= 1
+                            resp_response = serializer(redis_lite_dict[key_to_decrement]["data"])
+                        else:
+                            # Potentially dealing with a string integer or an errenous value.
+                            try:
+                                data_to_decrement = redis_lite_dict[key_to_decrement]['data']
+                                valid_int_string = data_to_decrement.replace('-', '')
+                                # if the string is negative, remove the - sign as isdigit will not work with it.
+                                valid_int_string = valid_int_string.isdigit()
+                            except:
+                                resp_response = serializer(RedisException("value is not an integer or out of range"))  
+                            else:
+                                if valid_int_string:
+                                    redis_lite_dict[key_to_decrement]['data'] = str(int(data_to_decrement) - 1)
+                                    decremented_value = redis_lite_dict[key_to_decrement]['data']
+                                    resp_response = serializer(decremented_value)
+                                else:
+                                    resp_response = serializer(RedisException("value is not an integer or out of range")) 
+                    else:
+                        # Key doesn't exist, at which we create a new key value pair with an intial value of 0, and then inccrement it by 1
+                        redis_lite_dict[resp_repr[0]] = {'data': 0, 'expires_at': None}
+                        redis_lite_dict[resp_repr[0]]['data'] -= 1             
+                        resp_response = serializer(redis_lite_dict[resp_repr[0]]['data'])
+                else:
+                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
+                conn.sendall(resp_response.encode('utf-8')) 
+                
             # Implement LPUSH
             elif command_word.upper() == 'LPUSH':
                 pass 
