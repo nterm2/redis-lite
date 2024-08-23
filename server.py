@@ -3,11 +3,19 @@ import datetime
 from threading import Thread
 from serializer import serializer
 from deserializer import deserializer, RedisException
+import json, os
 
 HOST = "127.0.0.1"
 PORT = 6384
 
 redis_lite_dict = {}
+try:
+    if os.path.exists("redis_lite_dump.json"):
+        with open("redis_lite_dump.json", 'r') as f:
+           redis_lite_dict = json.load(f)
+except:
+    # Redis dict hasn't been saved yet.
+    redis_lite_dict = {}
 
 def handle_client(conn, addr):
     with conn:
@@ -248,7 +256,16 @@ def handle_client(conn, addr):
 
             # Implement SAVE 
             elif command_word.upper() == 'SAVE':
-                pass
+                if len(resp_repr) == 0:
+                    try:
+                        with open("redis_lite_dump.json", 'w') as file:
+                            json.dump(redis_lite_dict, file)
+                        resp_response = serializer("OK")
+                    except IOError as e:
+                        resp_response = serializer(f"ERR {str(e)}")
+                else:
+                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))      
+                conn.sendall(resp_response.encode('utf-8'))
             else:
                 resp_response = serializer(RedisException(f"unknown command {command_word}"))
                 conn.sendall(resp_response.encode('utf-8'))
