@@ -4,7 +4,7 @@ import time
 
 class TestRedisServer(unittest.TestCase):
     def setUp(self):
-        self.r = redis.Redis(host="localhost", port=6384, socket_connect_timeout=5, socket_timeout=5, decode_responses=True)
+        self.r = redis.Redis(host="localhost", port=6398, socket_connect_timeout=5, socket_timeout=5, decode_responses=True)
 
     def test_valid_ping(self):
         self.assertEqual(self.r.ping(), True)

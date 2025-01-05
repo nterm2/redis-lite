@@ -1,281 +1,238 @@
-import socket
-import datetime
-from threading import Thread
 from serializer import serializer
 from deserializer import deserializer, RedisException
-import json, os
+import datetime, json, os
 
-HOST = "127.0.0.1"
-PORT = 6384
+PERSISTENT_REDIS_FILENAME = "dump.json"
+VALID_EXPIRY_COMMANDS = ["EX", "PX", "EXAT", "PXAT"]
 
-redis_lite_dict = {}
-try:
-    if os.path.exists("redis_lite_dump.json"):
-        with open("redis_lite_dump.json", 'r') as f:
-           redis_lite_dict = json.load(f)
-except:
-    # Redis dict hasn't been saved yet.
-    redis_lite_dict = {}
+class Server:
+    def __init__(self, connection):
+        self.__connection = connection
+        self.__redis_dict = self.__initialise_redis_dict()
+        self.__command_word_mapping = {
+            "PING": self.__ping,
+            "ECHO": self.__echo,
+            "SET": self.__r_set,
+            "GET": self.__get,
+            "EXISTS": self.__exists,
+            "DEL": self.__delete,
+            "INCR": self.__incr,
+            "DECR": self.__decr,
+            "LPUSH": self.__lpush,
+            "RPUSH":  self.__rpush,
+            "SAVE": self.__save
+        }
+    
+    def handle_client(self):
+        with self.__connection:
+            while True:
+                data = self.__connection.recv(1024)
+                if not data:
+                    break
+                self.__resp_data = deserializer(data.decode('utf-8'))
+                self.__command_word = self.__resp_data.pop(0)
+                try:
+                    method_to_execute = self.__command_word_mapping[self.__command_word]
+                except:
+                    resp_response = serializer(RedisException(f"unknown command {self.__command_word}"))
+                else:
+                    resp_response = method_to_execute()
+                self.__connection.sendall(resp_response.encode("utf-8"))
 
-def handle_client(conn, addr):
-    with conn:
-        print(f"Connected by {addr}")
-        while True:
-            data = conn.recv(1024)
-            if not data:
-                break
-            resp = data.decode('utf-8')
-            resp_repr = deserializer(resp)
-            print(f"Received: {resp_repr}")
-            command_word = resp_repr.pop(0)
+    def __initialise_redis_dict(self):
+        try:
+            if os.path.exists(PERSISTENT_REDIS_FILENAME):
+                with open(PERSISTENT_REDIS_FILENAME, 'r') as f:
+                    return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            print("not found")
+            
+        return {}
+        
+    def __ping(self):
+        match len(self.__resp_data):
+            case 0:
+                return serializer('PONG', use_bulk_str=True)
+            case 1:
+                message = self.__resp_data[0]
+                return serializer(message, use_bulk_str=True)
+            case _:
+                return serializer(RedisException("wrong number of arguments for the 'ping' command"))
+            
+    def __echo(self):
+        if len(self.__resp_data) == 1:
+            message = self.__resp_data[0]
+            return serializer(message, use_bulk_str=True)
+        else:
+            return serializer(RedisException("ERR wrong number of arguments for command"))
+    
+    def __determine_expiry_time(self, expiry_command, timeframe):
+        current_time = datetime.datetime.now()
+        match expiry_command:
+            case "EX":
+                return current_time + datetime.timedelta(seconds=timeframe)
+            case "PX":
+                return current_time + datetime.timedelta(milliseconds=timeframe)
+            case "EXAT":
+                return datetime.datetime.fromtimestamp(timeframe)
+            case "PXAT":
+                return datetime.datetime.fromtimestamp(timeframe / 1000)
 
-            # Implement PING
-            if command_word.upper() == 'PING':
-                if len(resp_repr) == 0:
-                    resp_response = serializer('PONG', use_bulk_str=True)
-                elif len(resp_repr) == 1:
-                    resp_response = serializer(resp_repr[0], use_bulk_str=True)
-                else:
-                    resp_response = serializer(RedisException("wrong number of arguments for the 'ping' command"))
-                conn.sendall(resp_response.encode('utf-8'))
-            # Implement ECHO
-            elif command_word.upper() == 'ECHO':
-                if len(resp_repr) == 1:
-                    resp_response = serializer(resp_repr[0], use_bulk_str=True)
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
-                conn.sendall(resp_response.encode('utf-8'))
-            # Implement SET
-            elif command_word.upper() == 'SET':
-                if len(resp_repr) == 2:
-                    redis_lite_dict[resp_repr[0]] = {'data': resp_repr[1], 'expires_at': None}
-                    resp_response = serializer("OK", use_bulk_str=False)
-                elif len(resp_repr) == 4:
-                    # Implement expiring keys
-                    expiry_command = resp_repr[2].upper()
-                    valid_expiry_commands = ["EX", "PX", "EXAT", "PXAT"]
-                    timeframe = resp_repr[3]
-                    if expiry_command in valid_expiry_commands:
-                        try:
-                            int(float(timeframe))
-                        except:
-                            resp_response = serializer(RedisException("value is not an integer or out of range"))
-                        else:
-                            if int(float(timeframe)) > 0:
-                                if timeframe.isdigit():
-                                    current_time = datetime.datetime.now()
-                                    timeframe = int(timeframe)
-                                    if expiry_command == "EX":
-                                        expiry_date = current_time + datetime.timedelta(seconds=timeframe)
-                                    elif expiry_command == "PX":
-                                        expiry_date = current_time + datetime.timedelta(milliseconds=timeframe)
-                                    elif expiry_command == "EXAT":
-                                        expiry_date = datetime.datetime.fromtimestamp(timeframe)
-                                    elif expiry_command == "PXAT":
-                                        expiry_date = datetime.datetime.fromtimestamp(timeframe / 1000)
-                                    redis_lite_dict[resp_repr[0]] = {'data': resp_repr[1], 'expires_at': expiry_date}
-                                    resp_response = serializer("OK", use_bulk_str=False)
-                                else:
-                                    # the timeframe entered is not an integer
-                                    resp_response = serializer(RedisException("value is not an integer or out of range"))
-                            else:
-                                # the timeframe is not valid. can't have a time that is less than or equal to zero
-                                resp_response = serializer(RedisException("invalid expire time in 'set' command"))
+    def __invalid_set_resp(self, expiry_command, expiry_timeframe):
+        # If invalid return a RESP string serialized exception.
+        # This is a truthy value. Otherwise return False.
+        if (expiry_command not in VALID_EXPIRY_COMMANDS):
+            return serializer(RedisException("syntax error"))
+        elif (not expiry_timeframe.is_digit()):
+            return serializer(RedisException("value is not an integer or out of range"))
+        elif (int(expiry_timeframe) < 0):
+            return serializer(RedisException("invalid expire time in 'set' command"))
+        else:
+            return False
+        
+    def __set_expiring_key(self):
+        expiry_command = self.__resp_data[0].upper()
+        expiry_timeframe = self.__resp_data[3]
+        invalid_resp_exception = self.__invalid_set_resp(expiry_command, expiry_timeframe)
+        if (invalid_resp_exception):
+            return invalid_resp_exception
+        expiry_command = int(expiry_command)
+        exact_expiry_time = self.__determine_expiry_time(expiry_command, expiry_timeframe)
+        self.__redis_dict[self.__resp_data[0]] = {'data': self.__resp_data[1], 'expires_at': exact_expiry_time}
+        return serializer("OK", use_bulk_str=False)
+    
+    def __r_set(self):
+        match len(self.__resp_data):
+            case 2:
+                self.__redis_dict[self.__resp_data[0]] = {'data': self.__resp_data[1], 'expires_at': None}
+                return serializer("OK", use_bulk_str=False)
+            case 4:
+                return self.__set_expiring_key()
+            case _:
+                return serializer(RedisException("ERR wrong number of arguments for command"))
 
-                    else:
-                        # Invalid expiry command
-                        resp_response = serializer(RedisException("syntax error"))
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
-                conn.sendall(resp_response.encode('utf-8'))
-            # Implement GET
-            elif command_word.upper() == 'GET':
-                if len(resp_repr) == 1:
-                    value = redis_lite_dict.get(resp_repr[0], None)
-                    if value and value['expires_at'] and value['expires_at'] <= datetime.datetime.now():
-                        del redis_lite_dict[resp_repr[0]]
-                        value = None # key has expired, at which we delete the key
-                    elif value:
-                        value = value['data'] # key exists and is either doesn't have a timestamp or has not been expired yet, at which we can access the data.
-                    resp_response = serializer(value)
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
-                conn.sendall(resp_response.encode('utf-8'))
-            # Implement EXISTS 
-            elif command_word.upper() == 'EXISTS':
-                if len(resp_repr) > 0:
-                    redis_lite_dict_keys = list(redis_lite_dict.keys())
-                    counter = 0
-                    for potential_key in resp_repr:
-                        print(potential_key)
-                        if potential_key in redis_lite_dict_keys:
-                            counter += 1
-                    resp_response = serializer(counter)
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
-                conn.sendall(resp_response.encode('utf-8'))
-            # Implement DEL
-            elif command_word.upper() == 'DEL':
-                if len(resp_repr) > 0:
-                    redis_lite_dict_keys = list(redis_lite_dict.keys())
-                    counter = 0
-                    for potential_key in resp_repr:
-                        try:
-                            del redis_lite_dict[potential_key]
-                        except:
-                            pass 
-                        else:
-                            counter += 1
-                    resp_response = serializer(counter)
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
-                conn.sendall(resp_response.encode('utf-8'))              
-            # Implement INCR 
-            elif command_word.upper() == 'INCR':
-                if len(resp_repr) == 1:
-                    redis_lite_dict_keys = list(redis_lite_dict.keys())
-                    key_to_increment = resp_repr[0]
-                    if key_to_increment in redis_lite_dict_keys:
-                        # Check whether the key's value is a string that can be represented as an integer, an integer, or otherwise (at which an error will be raised.)
-                        if isinstance(redis_lite_dict[key_to_increment]["data"], int):
-                            # Dealing with an integer
-                            redis_lite_dict[key_to_increment]["data"] += 1
-                            resp_response = serializer(redis_lite_dict[key_to_increment]["data"])
-                        else:
-                            # Potentially dealing with a string integer or an errenous value.
-                            try:
-                                data_to_increment = redis_lite_dict[key_to_increment]['data']
-                                valid_int_string = data_to_increment.replace('-', '')
-                                # if the string is negative, remove the - sign as isdigit will not work with it.
-                                valid_int_string = valid_int_string.isdigit()
-                            except:
-                                resp_response = serializer(RedisException("value is not an integer or out of range"))  
-                            else:
-                                if valid_int_string:
-                                    redis_lite_dict[key_to_increment]['data'] = str(int(data_to_increment) + 1)
-                                    incremented_value = redis_lite_dict[key_to_increment]['data']
-                                    resp_response = serializer(incremented_value)
-                                else:
-                                    resp_response = serializer(RedisException("value is not an integer or out of range")) 
-                    else:
-                        # Key doesn't exist, at which we create a new key value pair with an intial value of 0, and then inccrement it by 1
-                        redis_lite_dict[resp_repr[0]] = {'data': 0, 'expires_at': None}
-                        redis_lite_dict[resp_repr[0]]['data'] += 1             
-                        resp_response = serializer(redis_lite_dict[resp_repr[0]]['data'])
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
-                conn.sendall(resp_response.encode('utf-8')) 
+    def __get(self):
+        if (self.__resp_data == 1):
+            key_name = self.__resp_data[0]
+            value = self.__redis_dict.get(key_name, None)
+            if value and value['expires_at'] and value['expires_at'] <= datetime.datetime.now():
+                del self.__resp_data[key_name]
+                value = None
+            elif value:
+                value = value['data']
+            return serializer(value)
+        else: 
+            return serializer(RedisException("ERR wrong number of arguments for command"))
+        
+    def __exists(self):
+        if len(self.__resp_data) > 0:
+            redis_lite_dict_keys = list(self.__redis_dict.keys())
+            counter = 0
+            for potential_key in self.__resp_data:
+                if potential_key in redis_lite_dict_keys:
+                    counter += 1
+            return serializer(counter)
+        else:
+            return serializer(RedisException("ERR wrong number of arguments for command"))
 
-            # Implement DECR
-            elif command_word.upper() == 'DECR':
-                if len(resp_repr) == 1:
-                    redis_lite_dict_keys = list(redis_lite_dict.keys())
-                    key_to_decrement = resp_repr[0]
-                    if key_to_decrement in redis_lite_dict_keys:
-                        # Check whether the key's value is a string that can be represented as an integer, an integer, or otherwise (at which an error will be raised.)
-                        if isinstance(redis_lite_dict[key_to_decrement]["data"], int):
-                            # Dealing with an integer
-                            redis_lite_dict[key_to_decrement]["data"] -= 1
-                            resp_response = serializer(redis_lite_dict[key_to_decrement]["data"])
-                        else:
-                            # Potentially dealing with a string integer or an errenous value.
-                            try:
-                                data_to_decrement = redis_lite_dict[key_to_decrement]['data']
-                                valid_int_string = data_to_decrement.replace('-', '')
-                                # if the string is negative, remove the - sign as isdigit will not work with it.
-                                valid_int_string = valid_int_string.isdigit()
-                            except:
-                                resp_response = serializer(RedisException("value is not an integer or out of range"))  
-                            else:
-                                if valid_int_string:
-                                    redis_lite_dict[key_to_decrement]['data'] = str(int(data_to_decrement) - 1)
-                                    decremented_value = redis_lite_dict[key_to_decrement]['data']
-                                    resp_response = serializer(decremented_value)
-                                else:
-                                    resp_response = serializer(RedisException("value is not an integer or out of range")) 
-                    else:
-                        # Key doesn't exist, at which we create a new key value pair with an intial value of 0, and then inccrement it by 1
-                        redis_lite_dict[resp_repr[0]] = {'data': 0, 'expires_at': None}
-                        redis_lite_dict[resp_repr[0]]['data'] -= 1             
-                        resp_response = serializer(redis_lite_dict[resp_repr[0]]['data'])
+    def __delete(self):
+        if len(self.__resp_data) > 0:
+            counter = 0
+            for potential_key in self.__resp_data:
+                if potential_key in self.__redis_dict.keys():
+                    del self.__redis_dict[potential_key]
                 else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
-                conn.sendall(resp_response.encode('utf-8')) 
+                    counter += 1
+            return serializer(counter)
+        else:
+            return serializer(RedisException("ERR wrong number of arguments for command"))  
+        
+    def __increment_decrement_new_key(self, new_key_name, increment=True):
+        self.__redis_dict[new_key_name] = {'data': 0, 'expires_at': None}
+        self.__redis_dict[new_key_name]['data'] = self.__redis_dict[new_key_name]['data'] + 1 if increment else self.__redis_dict[new_key_name]['data'] - 1
+        return serializer(self.__redis_dict[new_key_name]['data'])
 
-            # Implement LPUSH
-            elif command_word.upper() == 'LPUSH':
-                if len(resp_repr) > 1:
-                    key_exists = resp_repr[0] in list(redis_lite_dict.keys())
-                    if key_exists:
-                        value = redis_lite_dict[resp_repr[0]]['data']
-                        if type(value) == list:
-                            elements_to_add = resp_repr[1:]
-                            elements_to_add.reverse()
-                            for element in elements_to_add:
-                                value.insert(0, element)
-                            resp_response = serializer(len(value))
-                        else:
-                            resp_response = serializer(RedisException("WRONGTYPE Operation against a key holding the wrong kind of value"))
-                    else:
-                        redis_lite_dict[resp_repr[0]] = {'data': [], 'expires_at': None}
-                        value = redis_lite_dict[resp_repr[0]]['data']
-                        elements_to_add = resp_repr[1:]
-                        elements_to_add.reverse()
-                        for element in elements_to_add:
-                            value.insert(0, element)
-                        resp_response = serializer(len(value))
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))  
-                conn.sendall(resp_response.encode('utf-8')) 
+    def __represents_int(self, s):
+        s = str(s)
+        if s[0] in ('-', '+'):
+            return s[1:].isdigit()
+        return s.isdigit()    
 
-            # Implement RPUSH
-            elif command_word.upper() == 'RPUSH':
-                if len(resp_repr) > 1:
-                    key_exists = resp_repr[0] in list(redis_lite_dict.keys())
-                    if key_exists:
-                        value = redis_lite_dict[resp_repr[0]]['data']
-                        if isinstance(value, list):
-                            elements_to_add = resp_repr[1:]
-                            for element in elements_to_add:
-                                value.append(element)
-                            resp_response = serializer(len(value))
-                        else:
-                            resp_response = serializer(RedisException("WRONGTYPE Operation against a key holding the wrong kind of value"))
-                    else:
-                        redis_lite_dict[resp_repr[0]] = {'data': [], 'expires_at': None}
-                        value = redis_lite_dict[resp_repr[0]]['data']
-                        elements_to_add = resp_repr[1:]
-                        for element in elements_to_add:
-                            value.append(element)
-                        resp_response = serializer(len(value))
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))
-                
-                # Ensure resp_response is always defined
-                conn.sendall(resp_response.encode('utf-8'))
+    def __increment_decrement_existing_key(self, key_name, increment=True):
+        try:
+            current_value = int(self.__redis_dict[key_name]['data'])
+            new_value = current_value + 1 if increment else current_value - 1
+            self.__redis_dict[key_name]['data'] = new_value
+            return new_value
+        except KeyError:
+            raise RedisException("ERR no such key")
+        except ValueError:
+            raise RedisException("ERR value is not an integer")
 
-            # Implement SAVE 
-            elif command_word.upper() == 'SAVE':
-                if len(resp_repr) == 0:
-                    try:
-                        with open("redis_lite_dump.json", 'w') as file:
-                            json.dump(redis_lite_dict, file)
-                        resp_response = serializer("OK")
-                    except IOError as e:
-                        resp_response = serializer(f"ERR {str(e)}")
-                else:
-                    resp_response = serializer(RedisException("ERR wrong number of arguments for command"))      
-                conn.sendall(resp_response.encode('utf-8'))
+
+    def __incr(self):
+        if len(self.__resp_data) == 1:
+            key_to_increment = self.__resp_data[0]
+            if (key_to_increment not in list(self.__redis_dict.keys())):
+                return self.__increment_decrement_new_key()
+            elif (self.__represents_int(self.__redis_dict[key_to_increment]['data'])):
+                return serializer(self.__increment_decrement_existing_key(self.__redis_dict, key_to_increment))
             else:
-                resp_response = serializer(RedisException(f"unknown command {command_word}"))
-                conn.sendall(resp_response.encode('utf-8'))
-            print(f"Sent: {resp_response}")
+                return serializer(RedisException("value is not an integer or out of range")) 
+        else:
+            return serializer(RedisException("ERR wrong number of arguments for command"))  
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((HOST, PORT))
-    s.listen()
-    print(f"Server listening on {HOST}:{PORT}")
-    while True:
-        conn, addr = s.accept()
-        # Handle each client in a new thread
-        Thread(target=handle_client, args=(conn, addr)).start()
+    def __decr(self):
+        if len(self.__resp_data) == 1:
+            key_to_decrement = self.__resp_data[0]
+            if (key_to_decrement not in list(self.__redis_dict.keys())):
+                return self.__increment_decrement_new_key(increment=False)
+            elif (not self.__represents_int(self.__redis_dict[key_to_decrement]['data'])):
+                return serializer(RedisException("value is not an integer or out of range")) 
+            else:
+                return serializer(self.__increment_decrement_existing_key(key_to_decrement, increment=False))
+        else:
+            return serializer(RedisException("ERR wrong number of arguments for command"))  
+
+    def __push_elements(self, elements, key, push_left=True):
+        data_value = self.__redis_dict[key]['data']
+        if type(data_value) != list:
+            return serializer(RedisException("WRONGTYPE Operation against a key holding the wrong kind of value"))
+        if push_left:
+            elements.reverse()
+            [data_value.insert(0, element) for element in elements]
+        else:
+            [data_value.append(element) for element in elements]
+        return serializer(len(data_value))
+
+
+    def __lpush(self):
+        if len(self.__resp_data) > 1:
+            if self.__resp_data[0] in list(self.__redis_dict.keys()):
+                return self.__push_elements(self.__resp_data[1:], self.__resp_data[0])
+            else:
+                self.__redis_dict[self.__resp_data[0]] = {'data': [], 'expires_at': None}
+                return self.__push_elements(self.__resp_data[1:], self.__resp_data[0])
+        else:
+            return serializer(RedisException("ERR wrong number of arguments for command"))
+
+    def __rpush(self):
+        if len(self.__resp_data) > 1:
+            if self.__resp_data[0] in list(self.__redis_dict.keys()):
+                return self.__push_elements(self.__resp_data[1:], self.__resp_data[0], push_left=False)
+            else:
+                self.__redis_dict[self.__resp_data[0]] = {'data': [], 'expires_at': None}
+                return self.__push_elements(self.__resp_data[1:], self.__resp_data[0], push_left=False)
+        else:
+            return serializer(RedisException("ERR wrong number of arguments for command"))
+
+    def __save(self):
+        if len(self.__resp_data) == 0:
+            try:
+                with open("redis_lite_dump.json", 'w') as file:
+                    json.dump(self.__redis_dict, file)
+                return serializer("OK")
+            except IOError as e:
+                return serializer(f"ERR {str(e)}")
+        else:
+            return serializer(RedisException("ERR wrong number of arguments for command"))
